@@ -35,11 +35,8 @@ class Program
         var endpoint = builder["Endpoint"];
         var model = builder["DeployName"];
 
+        // Semantic Kernel を、コンソールロガーを有効化したうえで初期化
         var kernel = Kernel.Builder
-        .Configure(c =>
-        {
-            c.AddAzureChatCompletionService(model, endpoint, key);
-        })
         .WithLogger(LoggerFactory.Create(b =>
         {
             b.AddFilter(_ => true);
@@ -47,49 +44,85 @@ class Program
         }).CreateLogger<Program>())
         .Build();
 
-        // ここで Semantic Kernel の初期化が終わるので、そのあと色々やる。
-        // とりあえずログに色々出してみたり…
-        kernel.Log.LogInformation("Deployment : " + model);
-        kernel.Log.LogInformation("Endpoint : " + endpoint);
-        kernel.Log.LogInformation("key : " + key);
-        kernel.Log.LogInformation("Kernel initialized");
+        // Azure OpenAI Service の Chat Completion Service を Kernel に登録する
+        kernel.Config.AddAzureChatCompletionService(
+            model,
+            endpoint,
+            key
+        );
 
-        // Semantic Skill を読み込んで使う場合のサンプル
-        var myPlugin = kernel.ImportSemanticSkillFromDirectory("MyPluginsDirectory", "RouteSkill");
-        var myContext = new ContextVariables();
-        myContext.Set("input", "東京駅から大阪駅に行きたいです。");
+        await Example1(kernel);
+        //await Example2(kernel);
+        //await Example3(kernel);
 
-        var myResult = await kernel.RunAsync(myContext, myPlugin["ExtractRoute"]);
+        //Console.WriteLine("実行終了するには何かキーを押してください。");
+        //Console.ReadLine();
+    }
 
-        Console.WriteLine(myResult);
+    private static async Task Example3(IKernel kernel)
+    {
+        // 四則演算の出来る Native Function を MathPlugin として読み込む
+        var mathPlugin = kernel.ImportSkill(new MathPlugin(), "MathPlugin");
 
-        // out-of-the-box プラグインを使う場合のサンプル
-        // https://learn.microsoft.com/en-us/semantic-kernel/ai-orchestration/out-of-the-box-plugins?tabs=Csharp
-        kernel.ImportSkill(new TimeSkill(), "time");
-        const string ThePromptTemplate = @"
-            今日は : {{time.Date}}
-            いまの時間は : {{time.Time}}
-            今日の曜日は : {{time.dayofWeek}}
+        // Planner を初期化
+        var planner = new SequentialPlanner(kernel);
 
-            与えられたデータを含めて、以下の質問に JSON syntax で回答してください。
-            深夜(0:00-4:59)ですか？朝(5:00-11:59)ですか？昼(12:00-17:59)ですか？夜(18:00-23:59)ですか？（朝/昼/夜/深夜)
-            週末(土曜か日曜）ですか？平日（それ以外の曜日）ですか？（週末/平日）
-            ";
-        var myKindOfDay = kernel.CreateSemanticFunction(ThePromptTemplate, maxTokens: 150);
+        // Planner にプランを立てさせるための要求が ask に入っている
+        var ask = "Aさんは500円の元手を競馬で1.5倍にした後、嬉しかったので200円のチョコを買ったあとに150円のジュースも買いました。Aさんの現在の所持金は何円ですか？";
+        //var ask = "If my investment of 2130.23 dollars increased by 23%, how much would I have after I spent $5 on a latte?";
+        //var ask = "213023円の元手が23%増えました。その記念に500円のおやつを買ったあとに残る資金はいくら？";
+        var plan = await planner.CreatePlanAsync(ask);
 
-        var myOutput = await myKindOfDay.InvokeAsync();
+        //plan に入っているプランをすべてループで出力
+        foreach (var step in plan.Steps)
+        {
+            Console.WriteLine(step.Name);
+        }
+
+        // プランを実行する
+        var result_2 = await plan.InvokeAsync();
+
+        Console.WriteLine("Plan results:");
+        Console.WriteLine(result_2.Result);
+    }
+
+    private static async Task Example2(IKernel kernel)
+    {
+        // Semantic Function を手動で作って C# で使えるようにする時の書き方はこんな感じ。
+        string myJokePrompt = """
+            {{$INPUT}} についての短いジョークを書いてください。
+            """;
+        string myPoemPrompt = """
+            “{{$INPUT}}” を題材にして、短い詩を書いてください。
+            """;
+        string myMenuPrompt = """
+            “{{$INPUT}}” の詩に着想を得て、喫茶店の三つのメニューを考えてください。
+            メニューは、以下に列挙してください : 
+            """;
+        var myJokeFunction = kernel.CreateSemanticFunction(myJokePrompt, maxTokens: 500);
+        var myPoemFunction = kernel.CreateSemanticFunction(myPoemPrompt, maxTokens: 500);
+        var myMenuFunction = kernel.CreateSemanticFunction(myMenuPrompt, maxTokens: 500);
+
+        // 上で定義した Semantic Function を 3 つチェーンして実行する
+        var myOutput = await kernel.RunAsync(
+            "Microsoft Azure",
+            myJokeFunction,
+            myPoemFunction,
+            myMenuFunction
+        );
         Console.WriteLine(myOutput);
+    }
 
-        // Native Skill を呼び出すテスト
-        var myNativeSkill = kernel.ImportSkill(new SampleNativeSkill(), "SampleNativeSkill");
-        var myNativeContext = kernel.CreateNewContext();
-        myNativeContext["input"] = "3";
-        myNativeContext["number2"] = "7";
-        var myResult2 = await myNativeSkill["Add"].InvokeAsync(myNativeContext);
+    private static async Task Example1(IKernel kernel)
+    {
+        // MyPlugionsDirectory ディレクトリ配下の FunSkill プラグインを読み込み、
+        // その中の Joke という Function を Kernel に登録する
+        var funSkillFunctions = kernel.ImportSemanticSkillFromDirectory("MyPluginsDirectory", "FunSkill");
+        var jokeFunction = funSkillFunctions["Joke"];
 
-        Console.WriteLine(myResult2);
-
-        Console.WriteLine("実行終了するには何かキーを押してください。");
-        Console.ReadLine();
+        // Joke という Function にコンテキストを渡して実行
+        var result = await jokeFunction.InvokeAsync("恐竜時代にタイムトラベルをする。");
+        Console.WriteLine("Result : ");
+        Console.WriteLine(result);
     }
 }
