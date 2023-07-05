@@ -51,9 +51,14 @@ class Program
             key
         );
 
+        // Semantic Function を主導で呼んでみる
         await Example1(kernel);
-        //await Example2(kernel);
-        //await Example3(kernel);
+
+        // 手動で Function Chain を試してみる
+        await Example2(kernel);
+
+        // planner を使って自動で Function Chain を使ってみる。
+        await Example3(kernel);
 
         //Console.WriteLine("実行終了するには何かキーを押してください。");
         //Console.ReadLine();
@@ -69,8 +74,6 @@ class Program
 
         // Planner にプランを立てさせるための要求が ask に入っている
         var ask = "Aさんは500円の元手を競馬で1.5倍にした後、嬉しかったので200円のチョコを買ったあとに150円のジュースも買いました。Aさんの現在の所持金は何円ですか？";
-        //var ask = "If my investment of 2130.23 dollars increased by 23%, how much would I have after I spent $5 on a latte?";
-        //var ask = "213023円の元手が23%増えました。その記念に500円のおやつを買ったあとに残る資金はいくら？";
         var plan = await planner.CreatePlanAsync(ask);
 
         //plan に入っているプランをすべてループで出力
@@ -79,7 +82,7 @@ class Program
             Console.WriteLine(step.Name);
         }
 
-        // プランを実行する
+        // プランを実行してその結果を Result_2 に入れる
         var result_2 = await plan.InvokeAsync();
 
         Console.WriteLine("Plan results:");
@@ -88,7 +91,7 @@ class Program
 
     private static async Task Example2(IKernel kernel)
     {
-        // Semantic Function を手動で作って C# で使えるようにする時の書き方はこんな感じ。
+        // Semantic Function をディレクトリから読み込まずに C# のコード内で定義しちゃうことも出来ます。
         string myJokePrompt = """
             {{$INPUT}} についての短いジョークを書いてください。
             """;
@@ -99,6 +102,8 @@ class Program
             “{{$INPUT}}” の詩に着想を得て、喫茶店の三つのメニューを考えてください。
             メニューは、以下に列挙してください : 
             """;
+
+        // 上で定義した Semantic Function のプロンプトをそれぞれ Semantic Function として kernel に登録して使えるようにする。
         var myJokeFunction = kernel.CreateSemanticFunction(myJokePrompt, maxTokens: 500);
         var myPoemFunction = kernel.CreateSemanticFunction(myPoemPrompt, maxTokens: 500);
         var myMenuFunction = kernel.CreateSemanticFunction(myMenuPrompt, maxTokens: 500);
@@ -116,7 +121,7 @@ class Program
     private static async Task Example1(IKernel kernel)
     {
         // MyPlugionsDirectory ディレクトリ配下の FunSkill プラグインを読み込み、
-        // その中の Joke という Function を Kernel に登録する
+        // その中の Joke という Function を Kernel に登録して kernel から使えるようにする。
         var funSkillFunctions = kernel.ImportSemanticSkillFromDirectory("MyPluginsDirectory", "FunSkill");
         var jokeFunction = funSkillFunctions["Joke"];
 
